@@ -1,0 +1,7 @@
+pandas
+numpy
+seaborn
+feature_engine
+scikit-learn
+optuna
+lightgbm
