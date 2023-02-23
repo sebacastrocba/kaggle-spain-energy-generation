@@ -1,0 +1,131 @@
+---
+title: "Spain Energy Forecasting"
+author: "Sebastian"
+date: "2023-01-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Spain Energy Forecast
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(timetk)
+library(lubridate)
+library(modeltime)
+library(DataExplorer)
+```
+
+## Dataset used
+
+```{r pressure, echo=FALSE}
+data <- read_csv("../data/raw/energy_dataset.csv")
+data %>% head() %>% glimpse()
+```
+
+Set time column data type as datetime
+
+```{r}
+data <- data %>% mutate(time <- ymd_hms(time))
+```
+
+Select hydro water reservoir generation time series for forecasting
+
+```{r}
+reservoir <- data %>% 
+             select(c("time", "generation hydro water reservoir")) %>% 
+             rename(timestamp = time, generation = "generation hydro water reservoir")
+```
+
+## Time series data analysis
+
+```{r}
+# First visualization
+reservoir %>% plot_time_series(.date_var = timestamp, .value = generation)
+```
+
+```{r}
+reservoir %>% tk_summary_diagnostics()
+```
+
+```{r}
+# NaN values
+reservoir %>% plot_missing()
+```
+
+Pad by time
+
+```{r}
+reservoir <- reservoir %>% 
+  summarise_by_time(.date_var = timestamp, .by = "hour", generation = mean(generation)) %>% 
+  pad_by_time(.date_var = timestamp, .by = "hour") %>% 
+  mutate(generation = ts_impute_vec(generation, period = 24))
+```
+
+Check
+
+```{r}
+reservoir %>% plot_missing()
+```
+
+
+```{r}
+# ACF and PCF plots
+reservoir %>% plot_acf_diagnostics(.date_var = timestamp, .value = generation)
+```
+
+Seasonal diagnostics
+
+```{r}
+reservoir %>% plot_seasonal_diagnostics(.date_var = timestamp, .value = generation, .feature_set = c("hour", "month.lbl"))
+```
+
+```{r}
+reservoir %>% plot_seasonal_diagnostics(.date_var = timestamp, .value = generation, .feature_set = c("wday.lbl", "week"))
+```
+
+```{r}
+reservoir %>% plot_seasonal_diagnostics(.date_var = timestamp, .value = generation, .feature_set = c("year", "quarter"))
+```
+
+Log transformation
+
+```{r}
+reservoir %>% plot_time_series(timestamp, log(generation+1))
+```
+
+Outliers detection
+
+```{r}
+reservoir %>% 
+  plot_anomaly_diagnostics(
+    .date_var = timestamp,
+    .value = generation
+  )
+```
+
+Cleaning and Data Imputation
+
+```{r}
+reservoir_cleaned <- reservoir %>% 
+  mutate(generation = ifelse(generation == 0, NA, generation)) %>%
+  mutate(generation_cleaned= ts_clean_vec(generation, period = 24)) %>% 
+  select(c(timestamp, generation_cleaned))
+```
+
+```{r}
+reservoir_cleaned %>% plot_time_series(timestamp, log(generation_cleaned+1))
+```
+
+
+Save clean dataset
+
+```{r}
+reservoir_cleaned %>% write_csv(file = "../data/processed/reservoir_cleaned_data.csv")
+reservoir_cleaned %>% write_rds(file = "../data/processed/reservoir_cleaned_data.rds")
+```
+

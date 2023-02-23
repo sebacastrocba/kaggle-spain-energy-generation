@@ -1,0 +1,181 @@
+---
+title: "Data Modeling"
+author: "Sebastian"
+date: "2023-02-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Modeling Experiments
+
+Testing different machine learning models to forecast
+
+```{r cars}
+library(timetk)
+library(lubridate)
+library(tidymodels)
+library(tidyverse)
+library(modeltime)
+```
+
+## Load dataset
+
+Dataset cleaned
+
+```{r pressure, echo=FALSE}
+data <- read_csv("../data/processed/reservoir_cleaned_data.csv")
+data
+```
+
+## Machine Learning Modeling Workflow
+
+```{r}
+# Feature Engineering steps
+
+# * Time series signature
+
+data_prep_signature <- data %>% 
+  tk_augment_timeseries_signature() %>% 
+  select(-diff, -ends_with("iso"), -ends_with(".xts"),
+        -contains("minute"), -contains("second"), -contains("am.pm"))
+
+data_prep_signature %>% glimpse()
+```
+```{r}
+# * Trend based features
+
+# ** Linear trend
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ index.num
+    )
+```
+
+```{r}
+# ** Non linear trend
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ splines::bs(index.num, df = 3),
+        .show_summary = TRUE
+    )
+```
+
+```{r}
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ splines::ns(index.num, 
+                                              knots = quantile(index.num, probs = c(0.25, 0.5))),
+        .show_summary = TRUE
+    )
+```
+```{r}
+# * Seasonal features ----
+
+# ** Weekly Seasonality
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ wday.lbl,
+        .show_summary = TRUE
+    )
+```
+
+```{r}
+# ** Monthly Seasonality
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ month.lbl,
+        .show_summary = TRUE
+    )
+```
+```{r}
+# * Daily seasonality
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = generation_cleaned ~ hour,
+        .show_summary = TRUE
+    )
+```
+
+```{r}
+# ** Together with Trend
+
+model_fomula_seasonality <- as.formula(
+    generation_cleaned ~ splines::ns(index.num, knots = quantile(index.num, probs = c(0.25, 0.5)))
+    + wday.lbl + month.lbl + .
+)
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = model_fomula_seasonality,
+        .show_summary = TRUE
+    )
+```
+
+```{r}
+# 2.0 INTERACTIONS ----
+
+model_formula_interactions <- as.formula(
+    generation_cleaned ~ splines::ns(index.num, knots = quantile(index.num, probs = c(0.25, 0.5)))
+    + .
+    + (as.factor(week2) * wday.lbl)
+    + month.lbl
+)
+
+data_prep_signature %>% glimpse()
+
+data_prep_signature %>%
+    plot_time_series_regression(
+        timestamp, 
+        .formula = model_formula_interactions,
+        .show_summary = TRUE
+    )
+```
+
+```{r}
+# 3.0 FOURIER SERIES ----
+
+# Data Prep
+
+data_prep_signature %>%
+    plot_acf_diagnostics(timestamp, generation_cleaned)
+
+data_prep_fourier_tbl <- data_prep_signature %>%
+    tk_augment_fourier(timestamp, .periods = c(12, 24, 36, 48, 60), .K = 2)
+
+data_prep_fourier_tbl %>% glimpse()
+```
+```{r}
+# Model
+
+model_formula_fourier <- as.formula(
+    generation_cleaned ~ splines::ns(index.num, knots = quantile(index.num, probs = c(0.25, 0.5)))
+    + .
+    + (as.factor(week2) * wday.lbl)
+)
+
+# Visualize
+
+data_prep_fourier_tbl %>%
+    plot_time_series_regression(
+        timestamp,
+        .formula = model_formula_fourier,
+        .show_summary = TRUE
+    )
+```
+
+
